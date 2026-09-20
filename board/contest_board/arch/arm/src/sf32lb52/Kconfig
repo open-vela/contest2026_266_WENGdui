@@ -1,0 +1,71 @@
+# arch/arm/src/sf32lb52/Kconfig
+# SiFli SF32LB52X 芯片层附加选项
+#
+# 重要: config ARCH_CHIP_SF32LB52 【不能在本文件定义】!
+#
+#   NuttX 的 arch/arm/Kconfig 把"MCU 选择"做成了一个 choice:
+#       arch/arm/Kconfig:55   choice
+#       arch/arm/Kconfig:57     default ARCH_CHIP_STM32
+#       arch/arm/Kconfig:714  endchoice # ARM MCU selection
+#   其中的芯片符号必须是该 choice 的成员。
+#
+#   若把芯片符号定义在 choice 之外:
+#     1) choice 内无成员被选中 -> 落回默认项 ARCH_CHIP_STM32=y
+#     2) 连带选中 ARCH_CHIP_STM32F103ZE (Cortex-M3)
+#     3) -> select ARCH_CORTEXM3 -> select ARCH_ARMV7M
+#     4) -> CONFIG_ARCH_FAMILY="armv7-m" (而不是 armv8-m)
+#     5) -> arch/arm/src/Makefile:34 的 if/else-if 链【先判断 ARMV7M】
+#           -> ARCH_SUBDIR = armv7-m -> VPATH 缺 armv8-m
+#           -> make: 没有规则可制作目标 "arm_sau.c" (由 .depend 需求)
+#     6) -> arm_m/arm_vectors.c 走 #elif CONFIG_ARCH_ARMV7M 分支
+#           -> error: 'ARMV7M_PERIPHERAL_INTERRUPTS' undeclared here
+#
+#   以上是实测得到的完整因果链。因此该符号由 integrate.sh 注入到
+#   arch/arm/Kconfig 的 choice 内部 (紧邻 ARCH_CHIP_NRF53 之前),
+#   本文件只负责定义芯片自己的附加选项。
+#
+#   参考: arch/arm/Kconfig 中 nrf53 的写法 (带 depends on EXPERIMENTAL 者
+#   即为该 choice 的成员)。
+
+if ARCH_CHIP_SF32LB52
+
+config SF32LB52_CONSOLE_UART
+	int "Console USART index"
+	default 1
+	range 1 5
+	---help---
+		控制台串口 (1..3 为 HPSYS USART1..3, 4..5 为 LPSYS USART4..5)
+
+config SF32LB52_SYSTIMER_SYSTICK
+	bool "SysTick based system timer"
+	default y
+	select ARMV8M_SYSTICK
+	---help---
+		使用 Cortex-M33 内核 SysTick 作为系统时基。
+
+		select ARMV8M_SYSTICK 是关键: arch/arm/src/arm_m/Make.defs
+		据此把 arm_systick.c (提供 systick_initialize) 加入 CMN_CSRCS。
+		缺少该 select 会导致链接期 systick_initialize 未定义。
+
+		对应源文件 sf32lb52_timer.c 由芯片 Make.defs 条件挂载;
+		时钟频率取自板级 BOARD_SYSTICK_CLOCK。
+
+config SF32LB52_HAS_GPADC
+	bool "GPADC (NTC 温度采集)"
+	default n
+
+config SF32LB52_HAS_LCDC
+	bool "LCDC / QSPI 显示"
+	default n
+
+config SF32LB52_HAS_GPTIM
+	bool "GPTIM (PWM 风机调速)"
+	default n
+
+config SF32LB52_ENABLE_LCPU
+	bool "启用 LCPU 辅助核"
+	default n
+	---help---
+		启用后需实现 HCPU/LCPU mailbox 启动与通信
+
+endif # ARCH_CHIP_SF32LB52

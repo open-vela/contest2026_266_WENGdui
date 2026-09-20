@@ -1,0 +1,53 @@
+# SF32LB52-LCD board configuration
+
+if ARCH_BOARD_SF32LB52_LCD
+
+config SF32LB52_LCD_SPI_BUS
+	int "SPI bus number for LCD"
+	default 1
+
+config SF32LB52_LCD_CS_PIN
+	int "LCD chip select GPIO pin"
+	default 18
+
+config SF32LB52_LCD_DC_PIN
+	int "LCD data/command GPIO pin"
+	default 19
+
+config SF32LB52_LCD_RST_PIN
+	int "LCD reset GPIO pin"
+	default 20
+
+config SF32LB52_LCD_BL_PIN
+	int "LCD backlight GPIO pin"
+	default 25
+
+config SF32LB52_NTC_CHAMBER_CH
+	int "ADC channel for chamber NTC"
+	default 0
+
+config SF32LB52_NTC_AMBIENT_CH
+	int "ADC channel for ambient NTC"
+	default 1
+
+config SF32LB52_HEATER_PIN
+	int "Heater relay GPIO pin"
+	default 33
+
+config SF32LB52_FAN_PWM_DEV
+	string "Fan PWM device name"
+	default "/dev/pwm2"
+
+config SF32LB52_FAN_PWM_CH
+	int "Fan PWM channel"
+	default 1
+
+config SF32LB52_TOUCH_IRQ_PIN
+	int "Touch interrupt (PENIRQ) GPIO pin"
+	default 30
+
+config SF32LB52_FAULT_LED_PIN
+	int "Fault indicator LED GPIO pin"
+	default 26
+
+endif # ARCH_BOARD_SF32LB52_LCD

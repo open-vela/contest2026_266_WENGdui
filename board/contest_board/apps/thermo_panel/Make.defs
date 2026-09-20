@@ -1,0 +1,12 @@
+############################################################################
+# apps/thermo_panel/Make.defs
+#
+# 把本目录挂进 CONFIGURED_APPS (apps/Make.defs 只收录带 Make.defs 的目录)。
+# 只要 THERMO_PANEL 或 THERMO_RXDIAG 任一为 y/m 就收录本目录,
+# 具体编译哪些源文件由 Makefile 按 CONFIG_ 分别决定。
+############################################################################
+
+ifeq ($(CONFIG_THERMO_PANEL)$(CONFIG_THERMO_RXDIAG),)
+else
+CONFIGURED_APPS += $(APPDIR)/thermo_panel
+endif

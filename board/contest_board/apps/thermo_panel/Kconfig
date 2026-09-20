@@ -1,0 +1,65 @@
+config THERMO_PANEL
+	bool "Thermo Panel Application"
+	default n
+	depends on GRAPHICS_LVGL && LV_USE_BAR && LV_USE_BUTTON && LV_USE_LABEL && LV_USE_SLIDER && LV_USE_TINY_TTF && LV_USE_ARC && LV_USE_MSGBOX
+	---help---
+		Enable the SF32LB52 thermo panel application with the vendor
+		LVGL UI (app/src/thermo_ui.c ported verbatim), NTC temperature
+		acquisition, PID control, and Flash storage.
+
+		Requires the LVGL library from apps/graphics/lvgl (GRAPHICS_LVGL)
+		plus the widgets the vendor UI uses:
+		  LV_USE_LABEL / LV_USE_BAR / LV_USE_BUTTON / LV_USE_SLIDER
+		and LV_USE_TINY_TTF (vendor UI calls lv_tiny_ttf_create_data).
+
+		NOTE: 旧值依赖 LIB_LVGL —— 本 openvela 树里根本不存在 LIB_LVGL
+		这个符号 (实际符号是 GRAPHICS_LVGL), 导致本项永远选不上、
+		带 LVGL 的 UI 从未被编译过。这里修正为真实符号。
+
+if THERMO_PANEL
+
+config THERMO_DEFAULT_TARGET_TEMP
+	int "Default target temperature (x0.5 C)"
+	default 110
+	---help---
+		Default target temperature in 0.5C steps. 110 = 55.0C.
+
+config THERMO_DEFAULT_HIGH_LIMIT
+	int "Default over-temperature limit (C, offset 30)"
+	default 50
+	---help---
+		Over-temperature alarm threshold. Actual = value + 30 C.
+
+config THERMO_DEFAULT_IDLE_TIMEOUT_S
+	int "Default idle screen-off timeout (seconds)"
+	default 30
+	---help---
+		Screen off timeout when no user activity. 0 = never sleep.
+
+endif # THERMO_PANEL
+
+config THERMO_RXDIAG
+	tristate "RX byte-level diagnostic NSH command (rx; rxd alias)"
+	default n
+	---help---
+		Enable a tiny NSH built-in command "rx" (alias "rxd") that dumps
+		the USART1 RX byte-level diagnostic counters maintained by the
+		SF32LB52 console serial driver (arch/arm/src/sf32lb52/sf32lb52_serial.c):
+		isr / raw / fw / drop / ore / fe, plus a second line with the
+		delta since the previous invocation.
+
+		Requires CONFIG_BUILTIN and CONFIG_NSH_BUILTIN_APPS.
+
+config THERMO_RXDIAG_PRIORITY
+	int "rx (rxd) task priority"
+	default 100
+	depends on THERMO_RXDIAG
+	---help---
+		NSH built-in task priority for the rx / rxd command.
+
+config THERMO_RXDIAG_STACKSIZE
+	int "rx (rxd) stack size"
+	default 2048
+	depends on THERMO_RXDIAG
+	---help---
+		Stack size for the rx / rxd NSH built-in task.

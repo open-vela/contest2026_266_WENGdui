@@ -1,0 +1,28 @@
+# boards/arm/sf32lb52/Kconfig
+# SiFli SF32LB52 板级配置入口
+#
+# 重要: config ARCH_BOARD_SF32LB52_LCD 【不能在本文件定义】!
+#
+#   NuttX 的 boards/Kconfig 把"板卡选择"做成了一个 choice
+#   (boards/Kconfig 第 6 行 choice ... 第 3242 行 endchoice),
+#   其中的板卡符号必须是该 choice 的成员。
+#
+#   若把板卡符号定义在 choice 之外:
+#     * choice 内没有任何成员被选中 -> 落回默认项 ARCH_BOARD_CUSTOM=y
+#     * tools/Config.mk:168 走自定义分支:
+#         CUSTOM_DIR = $(patsubst "%",%,$(CONFIG_ARCH_BOARD_CUSTOM_DIR)) = 空
+#         BOARD_DIR ?= $(TOPDIR)$(DELIM)$(CUSTOM_DIR) = $(TOPDIR)/
+#     * 于是 ARCHSCRIPT 变成 "nuttx//scripts/flash.ld"
+#       -> make: 没有规则可制作目标 ".../nuttx//scripts/flash.ld"
+#       -> make: 没有规则可制作目标 "libboard.a"
+#
+#   所以该符号由 integrate.sh 注入到 boards/Kconfig 的 choice 内部
+#   (紧邻 ARCH_BOARD_CUSTOM 之前), 本文件只负责:
+#     1) 限定芯片
+#     2) source 板卡自己的附加选项 (由 ARCH_BOARD_SF32LB52_LCD 守卫)
+
+if ARCH_CHIP_SF32LB52
+
+source "boards/arm/sf32lb52/sf32lb52-lcd/Kconfig"
+
+endif # ARCH_CHIP_SF32LB52

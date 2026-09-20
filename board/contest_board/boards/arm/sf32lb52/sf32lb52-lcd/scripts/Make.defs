@@ -1,0 +1,103 @@
+############################################################################
+# boards/arm/sf32lb52/sf32lb52-lcd/scripts/Make.defs
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.  The
+# ASF licenses this file to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance with the
+# License.  You may obtain a copy of the License at
+#
+#   `http://www.apache.org/licenses/LICENSE-2.0`
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+# License for the specific language governing permissions and limitations
+# under the License.
+#
+# 重要 (openvela/NuttX 机制):
+#   本文件会被 configure.sh 复制为源码树顶层的 nuttx/Make.defs,
+#   即它就是整个构建的顶层 Make.defs, 必须包含完整的工具链配置。
+#   参考实现: boards/arm/nrf53/nrf5340-dk/scripts/Make.defs
+############################################################################
+
+include $(TOPDIR)/.config
+include $(TOPDIR)/tools/Config.mk
+include $(TOPDIR)/arch/arm/src/armv8-m/Toolchain.defs
+
+# 链接脚本: XIP 应用镜像
+#   烧录到 ER_IROM1 分区 (0x12218000, 上限 0x240000)
+#   由厂家 bootloader + ftab 引导
+
+ifeq ($(CONFIG_ARCH_BOARD_COMMON),y)
+  ARCHSCRIPT += $(BOARD_COMMON_DIR)$(DELIM)scripts$(DELIM)flash.ld
+else
+  ARCHSCRIPT += $(BOARD_DIR)$(DELIM)scripts$(DELIM)flash.ld
+endif
+
+ARCHPICFLAGS = -fpic -msingle-pic-base -mpic-register=r10
+
+CFLAGS := $(ARCHCFLAGS) $(ARCHOPTIMIZATION) $(ARCHCPUFLAGS) $(ARCHINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS)
+CPICFLAGS = $(ARCHPICFLAGS) $(CFLAGS)
+CXXFLAGS := $(ARCHCXXFLAGS) $(ARCHOPTIMIZATION) $(ARCHCPUFLAGS) $(ARCHXXINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS)
+CXXPICFLAGS = $(ARCHPICFLAGS) $(CXXFLAGS)
+CPPFLAGS := $(ARCHINCLUDES) $(ARCHDEFINES) $(EXTRAFLAGS)
+AFLAGS := $(CFLAGS) -D__ASSEMBLY__
+
+NXFLATLDFLAGS1 = -r -d -warn-common
+NXFLATLDFLAGS2 = $(NXFLATLDFLAGS1) -T$(TOPDIR)/binfmt/libnxflat/gnu-nxflat-pcrel.ld -no-check-sections
+LDNXFLATFLAGS = -e main -s 2048
+
+# ============================================================================
+#  厂家 LCD 栈 (预编译静态库)
+#
+#  内容: 厂家 HAL (bf0_hal_lcdc / rcc / gpio / pinmux / tim / pin_const)
+#        + 厂家屏驱动 co5300.c + 胶水层, 见 build_vendor_lcd_lib.sh
+#
+#  为什么是 .a 而不是 CHIP_CSRCS:
+#    厂家 HAL 头要求"优先于 NuttX"的头文件搜索顺序 (sdk_port/shim 下的
+#    string.h / stdint.h 会挡掉 NuttX 的链式包含)。而 NuttX 芯片层的
+#    CFLAGS 是全目录共享的, 加 -I shim 会同时影响串口/中断/启动等所有
+#    芯片层源文件, 把 M1 已上板验证的构建搞坏。
+#    用 .a 隔离: NuttX 侧只多一条 LDLIBS, 其它源文件零影响。
+#
+#  注意: 用 wildcard 守卫 —— 库不存在时静默跳过 (例如只跑 M1 配置),
+#        否则会出现"文件不存在"的链接错误。
+# ============================================================================
+
+VENDOR_LCD_LIB = $(BOARD_DIR)$(DELIM)src$(DELIM)libsf32lb52_vendorlcd.a
+
+ifeq ($(CONFIG_SF32LB52_HAS_LCDC),y)
+  # 【不要在这里加 $(error) 或 $(warning)!】
+  #   distclean 会先删掉本库, 之后 fs_clean 等子目标会重新解析本文件,
+  #   并发的子 make 使 $(MAKECMDGOALS) 也挡不住 —— $(error) 会让 distclean
+  #   中断, 树停在半清理状态, configure.sh 拒绝执行 (Already configured!),
+  #   形成死锁; $(warning) 则会把 distclean 的输出刷成上百行噪音。
+  #   真缺库时链接器会给出清楚的信息:
+  #     undefined reference to `sf32lb52_lcd_vendor_init`
+  #   此时执行 bash openvela_thermo/integrate.sh 即可。
+  #   实测: error 卡死两轮, warning 刷屏一轮。
+
+  # 注意: 真正让符号解析成功的是板级 src/Makefile 里"把库成员并入
+  # libboard.a"那一段。静态库链接顺序敏感 —— 本库若排在 libboard.a
+  # 之前被 ld 扫过就会被跳过, 报 undefined reference (实测踩过)。
+  # 这里仍然保留一条 LDLIBS 作为兜底: 若 NuttX 把 LDLIBS 放在链尾,
+  # 它也能生效; 两边都命中同一批符号, 因归档按需抽取, 不会重复定义。
+  LDLIBS += $(VENDOR_LCD_LIB)
+endif
+
+# 厂家 HAL 里有一批 DMA / 中断 / HPAON 路径 (HAL_GPT_PWM_Start_DMA、
+# HAL_GPIO_EXTI_IRQHandler 等) 我们从不调用, 但它们所在的 .o 一旦被
+# 拉进链接就必须解析其全部未定义符号, 会拖出 bf0_hal_dma.c /
+# bf0_hal_hpaon.c ... 一整条依赖链。
+# 用 --gc-sections 把这些不可达段丢掉 (flash.ld 已 KEEP(*(.vectors)),
+# ENTRY(__start) 保证可达图正确)。
+#
+# 【注意】这里是 `--gc-sections` 而不是 `-Wl,--gc-sections`!
+#   NuttX 的 LDFLAGS 由 $(LD) 直接消费 (tools/Config.mk 的 LINKELF:
+#   `$(LD) $(LDFLAGS) ...`), 不经过 gcc 驱动, 所以 `-Wl,...` 会让
+#   arm-none-eabi-ld 报 "unrecognized option '-Wl,--gc-sections'"。
+LDFLAGS += --gc-sections

@@ -1,0 +1,72 @@
+# arch/arm/src/sf32lb52/Make.defs
+# SF32LB52X 芯片层源文件列表
+#
+# 注意: 本文件【不得】包含 `include $(TOPDIR)/Make.defs`
+#   (自包含会导致 configure.sh 的 Refreshing 步骤无限递归)
+#
+# 但【必须】include 家族层 Make.defs!
+#   NuttX 约定由芯片 Make.defs 链式引入家族层与公共层:
+#       armv8-m/Make.defs  ->(链式)->  arm_m/Make.defs  ->  common/Make.defs
+#   参考: arch/arm/src/nrf53/Make.defs:21 `include armv8-m/Make.defs`
+#
+#   缺少这一行的后果 (实测): 公共层对象不会进入 libarch.a, 链接期报
+#   一大片 undefined reference:
+#     up_initialize / up_idle / up_initial_state / up_create_stack /
+#     up_use_stack / up_release_stack / up_stack_frame / up_exit /
+#     up_saveusercontext / up_nputs / up_mdelay / arm_fpuconfig / _vectors
+#   —— 全部是"只有芯片代码链接成功、公共层却缺失"的特征。
+
+include armv8-m/Make.defs
+
+# VPATH 保底: 必须让 armv8-m 排在 $(ARCH_SUBDIR) 之前!
+#
+#   本文件在 arch/arm/src/Makefile:22 被 include, 早于其第 153 行的
+#       VPATH += $(ARCH_SUBDIR)
+#   因此这里先加入的目录在 VPATH 中优先级更高 (make 按 VPATH 顺序取首个匹配)。
+#
+#   为什么需要保底: 若 CONFIG_ARCH_ARMV7M 意外为 y, 则
+#   arch/arm/src/Makefile:34 的 if/else-if 链会先命中, 使
+#   ARCH_SUBDIR = armv7-m, 于是 armv8-m/ 不在 VPATH 中 ->
+#       make: 没有规则可制作目标 "arm_sau.c" (由 .depend 需求)
+#   而 armv7-m/ 与 armv8-m/ 存在【同名文件】(arm_doirq.c /
+#   arm_initialstate.c / arm_cpuinfo.c ...), 顺序错了会静默编进
+#   armv7-m 的实现, 在板子上表现为"中断能进但行为诡异", 极难定位。
+
+VPATH += armv8-m
+
+# 汇编入口 (复位跳板)
+#
+#   sf32lb52_head.S 提供全局符号 __start, 取代 NuttX 默认 arm_head.S 的
+#   版本 —— arm_head.S 在本移植里没有编入, 而它正是官方端口里负责清
+#   ARMv8-M MSRLIM/PSPLIM 的地方。缺了这一步的后果见该文件头部说明:
+#   ROM/bootloader 设过 MSPLIM 保护自己的 RAM(0x20000000~0x20010000),
+#   应用第一条 push 就触发栈越界异常, 串口只出 SFBL。
+#
+#   注意: 必须放在 CHIP_ASRCS (不是 CSRCS), 否则不会参与汇编。
+
+CHIP_ASRCS  = sf32lb52_head.S
+
+CHIP_CSRCS  = sf32lb52_start.c
+CHIP_CSRCS += sf32lb52_serial.c
+CHIP_CSRCS += sf32lb52_lowputc.c
+CHIP_CSRCS += sf32lb52_irq.c
+CHIP_CSRCS += sf32lb52_allocateheap.c
+
+# 系统时基 (与 nrf53 的 NRF53_SYSTIMER_SYSTICK 一致的组织方式)
+
+ifeq ($(CONFIG_SF32LB52_SYSTIMER_SYSTICK),y)
+CHIP_CSRCS += sf32lb52_timer.c
+endif
+
+ifeq ($(CONFIG_SF32LB52_HAS_GPADC),y)
+CHIP_CSRCS += sf32lb52_adc.c
+endif
+
+# LCD: 不再用自写的 SPI/ST7789 驱动。
+#   M2 起显示由"厂家 LCD 栈"承担 —— 厂家 HAL + 厂家 co5300 驱动原文,
+#   编译成 libsf32lb52_vendorlcd.a, 由板级 scripts/Make.defs 通过 LDLIBS 链接。
+#   (旧的 sf32lb52_spi_lcd.c / sf32lb52_lcd_hw.c 是早期手写版本, 已停用)
+
+ifeq ($(CONFIG_SF32LB52_HAS_GPTIM),y)
+CHIP_CSRCS += sf32lb52_pwm.c
+endif

@@ -1,0 +1,219 @@
+#
+# SF32LB52-LCD 温控面板 defconfig (openvela / NuttX)
+#
+# M1 目标: 串口控制台出声 (nsh> 提示符)
+#   - 仅启用控制台串口 USART1
+#   - LCD / ADC / PWM / LCPU 全部关闭 (M2+ 再开)
+#   - 不启用 FPU (soft-float), 避免与预编译库 ABI 不一致
+#
+
+# ---- 架构 ----
+# openvela 特有: 架构目录由 ARCH_FAMILY / ARCH_FAMILY_COMMON 决定
+#   ARCH_ARMV8M -> armv8-m/   (MPU/SAU/FPU/addrenv)
+#   ARCH_ARM_M  -> arm_m/     (向量表/异常/SysTick/NVIC)
+# 两者必须同时为 y, 否则缺向量表或 SysTick 实现。
+CONFIG_ARCH="arm"
+CONFIG_ARCH_CHIP="sf32lb52"
+CONFIG_ARCH_CHIP_SF32LB52=y
+CONFIG_ARCH_CORTEXM33=y
+CONFIG_ARCH_ARMV8M=y
+CONFIG_ARCH_ARM_M=y
+CONFIG_ARCH_BOARD="sf32lb52-lcd"
+CONFIG_ARCH_BOARD_SF32LB52_LCD=y
+
+# 必须显式关闭 Cortex-M3!
+#   ARCH_CORTEXM3 会 select ARCH_ARMV7M, 而 arch/arm/src/Makefile:34 是
+#     ifeq ($(CONFIG_ARCH_ARMV7M),y)     <- 先判断
+#       ARCH_SUBDIR = armv7-m
+#     else ifeq ($(CONFIG_ARCH_ARMV8M),y)
+#       ARCH_SUBDIR = armv8-m
+#   于是 ARCH_SUBDIR 被判成 armv7-m, 导致:
+#     * CONFIG_ARCH_FAMILY = "armv7-m"  (而不是 armv8-m)
+#     * VPATH 指向 armv7-m/, 但 armv8-m/Make.defs 的 CMN_CSRCS 里
+#       arm_sau.c / arm_cache.c 等只在 armv8-m/ 存在
+#       -> make: 没有规则可制作目标 "arm_sau.c"
+#   (armv7-m/ 与 armv8-m/ 还有同名文件 arm_doirq.c 等, 选错会编进错误实现)
+# CONFIG_ARCH_CORTEXM3 is not set
+
+# ---- 系统时基 ----
+# CONFIG_TIMER 必须为 y!
+#   arch/arm/src/armv8-m/Kconfig:131 定义 ARMV8M_SYSTICK 时带了
+#     depends on TIMER && ARCH_ARMV8M && ARCH_ARM
+#   若 TIMER=n, 则 SF32LB52_SYSTIMER_SYSTICK 对它 select 会触发
+#     "has direct dependencies TIMER && ... with value n,
+#      but is currently being y-selected by ..." 并使
+#     `make olddefconfig` 以错误 1 失败 (表现为 configure 阶段
+#      "ERROR: failed to refresh")。
+#   同时 CONFIG_TIMER 提供 up_timer_set_lowerhalf() —— 
+#   sf32lb52_timer.c 正是用它挂载 SysTick lower-half 驱动。
+CONFIG_TIMER=y
+
+# 其 select ARMV8M_SYSTICK 会把 arm_m/arm_systick.c 编入内核,
+# 否则链接期报 systick_initialize 未定义。
+CONFIG_SF32LB52_SYSTIMER_SYSTICK=y
+
+# ---- 构建模式 ----
+CONFIG_BUILD_FLAT=y
+
+# ---- 串口 ----
+CONFIG_ARCH_LOWPUTC=y
+CONFIG_ARCH_EARLYSERIALINIT=y
+CONFIG_SERIAL=y
+CONFIG_SERIAL_CONSOLE=y
+CONFIG_SF32LB52_CONSOLE_UART=1
+
+# ---- 内存: 片内 SRAM 512KB ----
+# 【重要】RAM_START 必须是 0x20002000, 不能用 0x20000000!
+#
+#   上板实测 (probe4 / probe5, 见 flash.ld 里的详细说明):
+#     向量表 MSP = 0x20002000, 不压栈  -> 正常
+#     向量表 MSP = 0x20001E48, 第一条 push -> 全无输出
+#     NuttX 原布局 MSP = _ebss+2048 = 0x20001E48, __start 首条即 push
+#       (机器码 38 B5) -> 同样静默
+#   => ROM/bootloader 设过 ARMv8-M 的 MSPLIM(栈下限), 压栈越过即异常。
+#      把 RAM 起点抬到 0x20002000 后, .data/.bss/空闲栈全在其上, 不会越限。
+#
+# 同时: RAM_START + RAM_SIZE 仍须正好等于 _mbox_base (0x2007FC00),
+#       以免侵占 LCPU mailbox 区 (HPSYS_MBOX_BUF_ADDR = 0x2007FC00)。
+#       0x20002000 + 0x7DC00 = 0x2007FC00  ✓
+CONFIG_RAM_START=0x20002000
+CONFIG_RAM_SIZE=515072
+CONFIG_MM_REGIONS=1
+CONFIG_BOARD_LOOPSPERMSEC=100000
+
+# ---- Flash (QSPI2 XIP) ----
+# ER_IROM1 分区: 0x12218000, 0x240000 (2.25MB), 与厂家 ftab 一致
+CONFIG_BOOT_RUNFROMFLASH=y
+CONFIG_FLASH_START=0x12218000
+CONFIG_FLASH_SIZE=2359296
+
+# ---- 启动 ----
+CONFIG_START_DAY=1
+CONFIG_START_MONTH=1
+CONFIG_START_YEAR=2026
+CONFIG_BOARD_LATE_INITIALIZE=y
+
+# ---- RTOS ----
+CONFIG_RR_INTERVAL=20
+CONFIG_PRIORITY_INHERITANCE=y
+
+# ---- 外设 ----
+# M2: 打开 LCD。显示由 libsf32lb52_vendorlcd.a 承担 (厂家 HAL + co5300 原文),
+#     该库由 openvela_thermo/build_vendor_lcd_lib.sh 产出;
+#     板级 scripts/Make.defs 会在本符号为 y 时校验库存在并加入 LDLIBS。
+CONFIG_SF32LB52_HAS_LCDC=y
+CONFIG_SF32LB52_ENABLE_LCPU=n
+
+# ---- LVGL (照厂家 UI 移植所需) ----
+# 【为什么现在才打开】
+#   厂家 UI 是 LVGL 代码 (app/src/thermo_ui.c: lv_obj/lv_label/lv_bar/
+#   lv_btn/lv_slider/lv_layer_top/lv_scr_load)。本仓库原先 UI 走的是
+#   "不依赖 LVGL 的手绘胶水"(build_vendor_lcd_lib.sh 里的 vendor_ui_glue.c),
+#   属于自写而非照搬; 本次改为照厂家移植, 因此必须打开 LVGL。
+#
+#   LVGL 来源: apps/graphics/lvgl (v9.2.1), 由 GRAPHICS_LVGL 打开。
+#   它用 CONFIG_LV_CONF_SKIP=y 的 Kconfig 配置 (不需要 lv_conf.h),
+#   控件开关全部由下面的 CONFIG_LV_USE_* 决定。
+CONFIG_GRAPHICS_LVGL=y
+
+# ---- 必须显式声明: 走 Kconfig 配置分支, 不回落到 lv_conf.h ----
+#
+#   lvgl/src/lv_conf_internal.h 的分支逻辑:
+#     :33-38  未定义 LV_KCONFIG_IGNORE -> #include "lv_conf_kconfig.h"
+#             -> 若已定义 CONFIG_LV_CONF_SKIP 则 #define LV_CONF_SKIP
+#     :50     #if !defined(LV_CONF_SKIP) || defined(LV_CONF_PATH)
+#             -> 只有 LV_CONF_SKIP 生效时才会跳过 lv_conf.h;
+#                否则落到 :60 的 #include "../../lv_conf.h"
+#                (相对 lvgl/src/ -> apps/graphics/lvgl/lv_conf.h),
+#                本树没有该文件 -> fatal error。
+#   该符号定义在 apps/graphics/lvgl/lvgl/Kconfig:8-10 (default y);
+#   这里显式写出, 使"走 Kconfig 分支"成为本工程的硬性声明而非隐式默认。
+CONFIG_LV_CONF_SKIP=y
+
+# ---- 必须显式声明: LVGL 版本号, 与 lvgl/lv_version.h 严格一致 (9.2.1) ----
+#
+#   lvgl/src/lv_conf_kconfig.h:25-30 做编译期校验:
+#     #include "../lv_version.h"
+#     #if CONFIG_LVGL_VERSION_MAJOR != LVGL_VERSION_MAJOR || ... #warning "Version mismatch ..."
+#   缺任一符号即 evaluate 成 0 -> 触发 #warning。
+#   lv_version.h:9-11 为 9 / 2 / 1;
+#   符号定义在 apps/graphics/lvgl/lvgl/Kconfig:1506-1514 (default 9/2/1)。
+CONFIG_LVGL_VERSION_MAJOR=9
+CONFIG_LVGL_VERSION_MINOR=2
+CONFIG_LVGL_VERSION_PATCH=1
+
+# 颜色深度必须 16 (RGB565) —— 与厂家面板/co5300 一致
+CONFIG_LV_COLOR_DEPTH_16=y
+
+# 设计图 UI 用到的控件 (含圆弧仪表 arc 与告警弹窗 msgbox)
+CONFIG_LV_USE_LABEL=y
+CONFIG_LV_USE_BAR=y
+CONFIG_LV_USE_BUTTON=y
+CONFIG_LV_USE_SLIDER=y
+CONFIG_LV_USE_ARC=y
+CONFIG_LV_USE_MSGBOX=y
+
+# 厂家 thermo_ui.c:140 调 lv_tiny_ttf_create_data() (大号温度字体)
+CONFIG_LV_USE_TINY_TTF=y
+
+# 大号温度数字用 LVGL 自带 Montserrat (含 '°'), 避免自造字库:
+#   montserrat_48 -> 圆弧中央超大数字
+#   montserrat_20 -> "55.0 °C / 45% / °C" 等数值与单位
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
+
+# 字体: 照厂家做法用 TTF。
+#   厂家 app/font/SConscript: Env.ConvertFont(DroidSansFallback.ttf,'xiaozhi_font')
+#   把整支 TTF (3,939,852 B) 转成 C 数组, 放独立的 4MB FONT_DATA 分区
+#   (源码 xiaozhi-sf32-1.4.0/app/project/build_.../ptab.h:52-57, 0x12AE0000),
+#   运行期由 xiaozhi_ui.c:2040 lv_tiny_ttf_create_data() 建字体。
+#   本工程 ER_IROM1 只有 2.25MB, 放不下完整 TTF, 故用 pyftsubset 把同一支 TTF
+#   裁成"界面字符子集"(50,136 B) -> apps/thermo_panel/thermo_font.c,
+#   仍走同一条 tiny_ttf 路径 (CONFIG_LV_USE_TINY_TTF 见上)。
+#
+# 【关掉 simsun 的原因 —— 中文乱码的确切根因】
+#   lv_font_simsun_16_cjk 只含 1000 个最常用汉字 (cmap 实测共 1457 个码位);
+#   本 UI 文案用到的 69 个汉字里缺 30 个:
+#     关 开 热 设 环 境 输 标 警 腔 线 请 检 负 载 采 恒 启 偏 异 器 图 备 版 显 散 样 板 于 传
+#   -> 这些字渲染为空/豆腐块, 就是"乱码"。改用厂家 TTF 子集后 simsun 不再需要。
+# CONFIG_LV_FONT_SIMSUN_16_CJK is not set
+
+# ---- 温控面板应用 (厂家 UI 原文) ----
+# 打开后 apps/thermo_panel 编入: thermo_ui.c(厂家原文) + thermo_ui_glue.c(胶水)
+CONFIG_THERMO_PANEL=y
+
+# ---- 栈尺寸 ----
+CONFIG_IDLETHREAD_STACKSIZE=2048
+CONFIG_MAIN_THREAD_STACKSIZE=4096
+CONFIG_DEFAULT_TASK_STACKSIZE=4096
+CONFIG_PTHREAD_STACK_MIN=512
+CONFIG_PTHREAD_STACK_DEFAULT=4096
+
+# ---- NSH ----
+CONFIG_SYSTEM_NSH=y
+CONFIG_NSH_CONSOLE=y
+CONFIG_NSH_READLINE=y
+
+# ---- NSH 内置命令 (rx: USART1 RX 字节级诊断打印, 别名 rxd) ----
+# 内置命令链路: CONFIG_BUILTIN 打开 apps/builtin 注册表 ->
+# CONFIG_NSH_BUILTIN_APPS 让 nsh_builtin() 生效 ->
+# CONFIG_THERMO_RXDIAG 把 apps/thermo_panel 里的诊断命令注册为 "rx"
+# (同时注册别名 "rxd")。
+# 三者缺一不可。用户即可在 nsh> 下敲 `rx` 查看绝对计数与增量。
+CONFIG_BUILTIN=y
+CONFIG_NSH_BUILTIN_APPS=y
+CONFIG_THERMO_RXDIAG=y
+
+# 用户入口点 —— 符号名是 INIT_ENTRYPOINT, 【不是】 USER_ENTRYPOINT!
+#   openvela 已把 USER_ENTRYPOINT 改名 (见 sched/init/nx_bringup.c 注释:
+#   "CONFIG_INIT_ENTRYPOINT: This is the default user application entry point")。
+#   若此处写成 CONFIG_USER_ENTRYPOINT:
+#     * Kconfig 视为未知符号直接丢弃
+#     * nx_bringup.c 于是按默认去引用 `main`
+#     * 而 apps/Application.mk:365 会把 app 的 main 重命名为
+#         -Dmain=$(PROGNAME)_main   ->  NSH 的入口变成 `nsh_main`
+#     * libapps.a 中【不存在】 main -> 链接期:
+#         undefined reference to `main'
+#
+#   因此必须设置 INIT_ENTRYPOINT, 指向 libapps.a 里真实存在的 nsh_main。
+CONFIG_INIT_ENTRYPOINT="nsh_main"

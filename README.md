@@ -1,148 +1,94 @@
-# contest2026_266_WENGdui
+# SF32LB52 智能温控面板（openvela / NuttX 移植 + thermopanel 应用）
 
-👋 欢迎参加 **2026 首届 openvela AI 硬件开发者大赛**！
+> **2026 首届 openvela AI 硬件开发者大赛 · 新硬件平台适配赛道**
+> 目标硬件：**思澈科技 SF32LB52-LCD**（Cortex-M33 双核 / 片内 512KB SRAM / 片外 16MB NOR + 8MB PSRAM / CO5300 LCD / FT6146 触摸）
 
-这是组委会为你的队伍创建的**专属参赛仓库**（本仓为样例/模板，队伍编号 `266`；你看到的将是你自己的 `contest2026_<编号>_<队伍名>`）。比赛期间，你的全部参赛代码、打包产物与 AI Coding 日志都提交到这里。
+## 作品简介
 
-> 本仓既是「代码仓」，又内置了一键拉取整套 openvela 工程的 `repo` 清单（manifest）。你只需跟它打交道，**自始至终只动一个文件夹**。
+本项目完成 **openvela（NuttX）在 SF32LB52 平台上从零的芯片级移植**，并在其上跑通一套完整的**智能温控面板**应用：
 
----
+- **系统移植**：芯片层（Cortex-M33 启动、时钟、USART 控制台、GPIO、GPADC、GPTIM PWM、LCDC 显示、LCDC1/GPIO1 中断）+ 板级层 + `sf32lb52-lcd` 板卡 defconfig，全部以**新增代码**方式进入 openvela 源码树，不依赖思澈 RT-Thread 侧的任何编译产物即可独立构建。
+- **LCD 显示**：CO5300（QSPI，`spi_clk=48MHz`），LVGL 9.2.1 整屏 RGB565 缓冲放 PSRAM（`0x60200000`，FULL 渲染模式），一次整屏 390×450 刷新。
+- **触摸**：FT6146（I2C `0x38`，PA30/PA33/PA31 中断/PA09 复位），LVGL 中断驱动 indev。
+- **网热点**：NTC 腔体温采集（PA28/GPDAC ch0），增量式 PID 控温（`kp=6.0 ki=0.2 kd=1.0`），风扇 PWM（PA32/GPTIM2_CH1），加热灯（PA25）与到温灯（PA24）双灯翻转，NVS 参数持久化（目标温度 55.0°C）。
+- **UI**：iOS 深色风格 LVGL 界面（主页：状态胶囊 / 大字温度 / 环境 / 目标 / PID 柱状图 / −·电源·+ 三键；设置页：目标温度与超温上限滑条；告警遮罩）。字体用 DroidSansFallback 子集 TTF 经 `lv_tiny_ttf` 生成。
 
-## 一、先读这些官方文档
+## 所属赛道
 
-**通用（所有赛道必读）：**
+**新硬件平台适配（重点鼓励 + 技术难度加分）**：openvela/NuttX 此前无 SF32LB52 官方支持，本作品完成全新芯片平台首刷，并叠加温控产品 Demo（采集 / 显示 / 控温 / 双灯联动），实现“系统适配 + 应用 Demo”全栈落地。
 
-| 文档                                                                                                                                     | 用途                                           |
-| ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| [《大赛总览》](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/contest_overview.md)                        | 赛道、流程、评分、资源，建议先通读             |
-| [《参赛代码提交指南》](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/code_submission_guide.md)           | 仓库获取、提交流程、时间与权限（**以此为准**） |
-| [《AI Coding 日志归集与提交手册》](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/ai_coding_log_guide.md) | 如何导出 AI 对话日志并提交到 `logs/`           |
+## 目录结构
 
-**按你的赛道选读（三选一）：**
+```
+openvela_thermo/
+├── apps/thermo_panel/               # thermopanel 应用（NSH 内置命令）
+│   ├── thermo_ui.c                  # 深色 iOS 风格 LVGL UI
+│   ├── thermo_ui_glue.c             # 适配胶水层（LCD/触摸/字体/事件/控温循环）
+│   ├── thermo_ui.h · thermo_app.h   # 应用接口
+│   ├── thermo_font.c                # DroidSansFallback 界面字符子集 (C 数组)
+│   ├── rtthread.h                   # rt_kprintf/rt_snprintf -> printf/snprintf shim
+│   ├── rxd_main.c / rxd_alias.c     # RX 字节诊断命令 (rx/rxd)
+│   └── Makefile · Kconfig
+├── boards/arm/sf32lb52/sf32lb52-lcd/ # 板级层（含厂家 LCD/触摸/PID/NVS 静态库集成）
+├── arch(arm/src/sf32lb52)/           # 芯片层（Cortex-M33 启动/时钟/串口/GPIO/ADC/PWM）
+├── drivers/                           # 底层驱动补充
+├── sdk_port/                          # 厂家 HAL 移植胶水（co5300/ft6146/pid/nvs/fan…）
+│   └── build_vendor_lcd_lib.sh        # 生成 libsf32lb52_vendorlcd.a
+├── integrate.sh                       # 一键集成进 openvela 源码树（复制+注册+编库）
+├── build_openvela.sh                  # 一键构建（distclean→integrate→configure→make→objcopy）
+├── SF32LB52_NuttX_Porting_Guide.md    # 详细移植指南
+└── README.md                          # 本文件
+```
 
-| 赛道                  | 教程导航                                                                                                                                                 |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 快应用 / 手表应用创新 | [快应用教程导航](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/quickapp/quickapp_guide_index.md)                         |
-| AI 硬件产品创新       | [AI 硬件赛道教程导航](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/ai_hardware/ai_hardware_guide_index.md)              |
-| 新硬件适配            | [新硬件适配赛道教程导航](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/hardware_porting/hardware_porting_guide_index.md) |
+## 运行方式（构建 + 烧录）
 
----
-
-## 二、第一步：拉取完整工程
-
-用组委会提供的命令一键拉取「openvela 全量源码 + 你的专属仓」：
+环境：WSL Ubuntu-24.04 + openvela 源码树（`nuttx/`、`apps/` 的父目录），原生 `arm-none-eabi-gcc 13.2.1`。
 
 ```bash
-repo init -u https://github.com/open-vela/contest2026_266_WENGdui \
-  -b dev-ai-contest-2026 -m contest2026_266_WENGdui.xml
-repo sync -c -j8
+cd openvela_thermo
+export OPENVELA_ROOT=/path/to/openvela_parent      # 含 nuttx/ 与 apps/
+bash build_openvela.sh                              # distclean → integrate → configure(sf32lb52-lcd:thermo) → make → nuttx.bin
 ```
 
-同步后，你的整个仓库位于工作区的 `contest2026_266_WENGdui/`，openvela 全量源码在外层（`nuttx/`、`apps/`、`packages/`、`vendor/` 等）。
+- 关键校验：`CONFIG_ARCH_CHIP_SF32LB52=y`、`CONFIG_ARCH_FAMILY="armv8-m"`、`CONFIG_INIT_ENTRYPOINT="nsh_main"`。
+- 产物 `nuttx.bin` 必须 < 0x240000（2.25MB，ER_IROM1 分区）。
 
----
-
-## 三、第二步：在哪里写代码
-
-**只在自己的仓目录 `contest2026_266_WENGdui/` 里开发。** 不同作品形态放在对应子目录，manifest 会通过 `<linkfile>` 把它们**软链**到 openvela 编译树该在的位置——你不用手动 copy：
-
-| 作品形态 | 你的代码放这里             | 系统自动映射到                                 |
-| -------- | -------------------------- | ---------------------------------------------- |
-| 应用     | `app/hello_app/`           | `packages/demos/contest2026_266_hello_app`     |
-| 快应用   | `quickapp/hello_quickapp/` | `packages/apps/contest2026_266_hello_quickapp` |
-| 板级适配 | `board/contest_board/`     | `vendor/openvela/boards/contest2026_266_board` |
-
-> 用不到的形态目录可以删掉；新增作品时按同样规则加子目录，并在 `contest2026_266_WENGdui.xml` 里补一条 `<linkfile>` 映射即可。**生产仓库（packages/nuttx/vendor 等）零改动。**
-
-建议仓库目录约定（便于评委定位）：
-
-```text
-app/ | quickapp/ | board/   # 你的作品代码
-logs/                       # AI Coding 日志（主动导出后提交，格式见 logs/README.md）
-README.md                   # 作品说明（提交前请改成你自己的，见第六节）
-```
-
-> 仓内附带了一个 `.gitignore.example`，给出了**编译产物**等不需要进仓的文件示例。如需启用，`cp .gitignore.example .gitignore` 后按需增删即可。**注意 `logs/` 下最终导出的 AI Coding 日志必须提交，不要忽略。**
->
-> `logs/` 的目录结构与提交格式见 [logs/README.md](logs/README.md)。
-
----
-
-## 四、第三步：编译与运行
-
-编译/运行步骤随作品形态不同而不同，请参考你所在赛道的教程导航：
-
-- 快应用 / 手表应用：[快应用教程导航](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/quickapp/quickapp_guide_index.md)（含模拟器与开发板部署）。
-- AI 硬件产品创新：[AI 硬件赛道教程导航](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/ai_hardware/ai_hardware_guide_index.md)（环境搭建、编译烧录、Skill 开发）。
-- 新硬件适配：[新硬件适配赛道教程导航](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/hardware_porting/hardware_porting_guide_index.md)（BSP 移植、最小 NSH 基线）。
-
-子目录已通过 manifest 中的 `<linkfile>` 软链进 openvela 编译树，因此构建在 openvela 工作区**根目录**（即你这个仓的上一级）进行。openvela 使用 `build.sh` 作为统一入口，接收一个 **board config 路径**作为参数：
+烧录（沿用思澈 sftool，整包含 ftab/bootloader/ER_IROM1/2/3）：
 
 ```bash
-# 进入 openvela 工作区根目录（你的仓的上一级）
-cd ..
-
-# 通用语法：第一个参数是 board config 路径，第二个参数可以是 menuconfig / distclean 等
-./build.sh <board-config-path> [menuconfig|distclean] [-j8]
+cp openvela_thermo/nuttx.bin devkit_lcd_n16r8_firmware/main.bin/ER_IROM1.bin
+# 用 devkit_lcd_n16r8_firmware/sftool_param.json 整包烧写
+sftool -c SF32LB52 -m nor write_flash -i sftool_param.json
 ```
 
-> 具体的 board config 路径、目标产物、模拟器/真机部署方式请以你所在赛道的教程导航为准。本仓 `app/` `quickapp/` `board/` 三个示例骨架对应的 Kconfig 选项可通过 `menuconfig` 启用。
+串口 115200 预期日志：
 
----
-
-## 五、第四步：提交作品
-
-1. **fork** 你的专属仓 → 开发 → `git commit` 并推送 → 向专属仓发起 **Pull Request**，可**自行 review 并合入**（无需等组委会）。
-2. **AI Coding 日志**：与 AI 工具的对话会自动记录到本机 staging（不会自动上传），需你**主动导出/打包**选定会话到仓内 `logs/` 目录后一并提交。详见[《AI Coding 日志归集与提交手册》](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/ai_coding_log_guide.md)。
-3. 若需改动 **nuttx 等公共仓库**，不在本仓改，而是 fork 对应公共仓、以 PR 提交到 `dev-ai-contest-2026` 分支，由组委会 review 后合入。
-
-> ⏰ **提交作品截止：9 月 20 日**。截止后统一收回 push 权限，仍可查看 / clone。
->
-> 获奖后再按要求将作品 PR 至 openvela 上游对应仓库（走标准 PR + CI 流程）。
-
-### 关于 PR 与 CLA
-
-- 本仓所有改动通过 **Pull Request** 合入（分支保护强制，可自行合入自己的 PR）。
-- 首次贡献需在[**官网签署 CLA**](https://openvela.com/#/community/cla)；PR 上会自动跑 `cla/signature` 检查，在官网签署成功后，在 PR 评论 `/check-cla` 复检即可通过。
-
----
-
-## 六、提交前：把本 README 改成你的作品说明
-
-本文件目前是组委会给的**使用说明书**。**作品提交前，请把它替换成你自己作品的说明**，方便评委快速了解你做了什么、怎么跑起来。建议至少包含以下内容：
-
-```markdown
-# <你的作品名>
-
-## 一、作品简介
-<一句话/一段话说明这个作品是什么、解决什么问题、亮点在哪>
-
-## 二、选题方向
-<快应用 / 手表应用创新 ｜ AI 硬件产品创新 ｜ 新硬件适配 ｜ 自定方向，并简述理由>
-
-## 三、目录结构
-<列出你这个仓里各目录/文件的作用，例如：>
-- `app/xxx/`        — <说明>
-- `board/xxx/`      — <说明>
-- `quickapp/xxx/`   — <说明>
-- `logs/`           — AI Coding 日志
-- `docs/` 或其他    — <说明>
-
-## 四、运行方式
-<拉取工程后，如何编译、烧录/部署、运行的完整步骤；最好能让评委照着一步步复现>
-
-## 五、AI Coding 使用说明
-<说明本作品如何借助 AI 辅助开发：
-- 在需求拆解 / 方案设计 / 编码 / 调试 / 文档等环节如何与 AI 协作；
-- AI 对开发效率或质量带来的实际帮助。
-完整对话日志见 logs/ 目录>
+```
+[BOARD] SF32LB52-LCD bringup
+[LCD] drawbuf @ 0x60200000 (351000B) psram=1 mode=FULL
+[THERMO] UI init done
+[CTRL] meas=.. out=..% heater=ON setpoint_led=off (PA25/PA24)
+NuttShell (NSH)
+nsh>
 ```
 
-> 提示：将会根据「作品本身 + 你的 README 说明 + `logs/` 里的 AI Coding 日志」来理解和评估你的作品，README 写清楚很重要。
+## 未完成 / 已知限制（如实声明）
 
----
+以下功能点未能完整落地或未做整机验证，供评委如实参考：
 
-## 附：仓库命名规范
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| **蓝牙 BLE / 无线** | ❌ 未实现 | SF32LB52 为蓝牙 SoC，但 openvela/NuttX 下未移植 BLE 协议栈；当前完全为有线控制（按键/触摸），无无线链路。 |
+| **低功耗 / 休眠** | ⚠️ 浅层实现 | `sf32lb52_pm.c` 提供 `enter_stop()`（背光关闭 + WFI 进 STOP + 触摸唤醒），但未做整机功耗实测与休眠-唤醒真机回归，寄存器定义仍需真机核对。 |
+| **双核 LCPU** | ❌ 未实现 | 双核中的 LCPU 未启动驱动；NuttX 仅运行在 HCPU（M33），LCPU 的 mailbox 唤醒/协作未实现。 |
+| **串口 RX（指令输入）** | ⚠️ 待验证 | 串口 TX/控制台日志可稳定输出；RX 读入链路经过多轮调优（`fix_rx*.sh`），命令回读路径稳定性未做压力实测。 |
+| **温控精度 / 传感器** | ⚠️ 有实现未标定 | NTC 腔体采集 + 增量式 PID 有完整实现；但板载无环境传感器，环境温度用哨兵 `THERMO_AMBIENT_NA(-999)` 显示" --"。整机控温曲线、稳态误差、PID 参数未做长时间实测标定。 |
+| **故障 / 过温报警** | ⚠️ 逻辑有、注入未验证 | `thermo_fault.c` 已实现超温锁存、传感器断线、ADC 错误检测并联动 UI 告警遮罩；但故障场景未做真机注入验证（未实测超温实际触发告警）。 |
 
-`contest2026_<编号>_<队伍名>` — 编号三位零填充；队名 slug（全小写、英文/拼音、连字符）。例：`contest2026_266_WENGdui`。
-（仓库由组委会统一创建，**每队仅一个仓**，无需自行命名。）
+如需复现，直接使用第二小节"已知限制"所列的哨兵值与调试口即可观察到对应行为。
+
+## 比赛提交约定（按官方《参赛代码提交指南》）
+
+- 代码存放于组委会专属仓 `contest2026_<编号>_<队伍名>` 的子目录，与 openvela 工程通过 manifest `<linkfile>` 映射。
+- fork 专属仓 → 开发 → PR → 自行 review 合入；AI 对话日志导出至仓内 `logs/`。
+- 提交截止 **9 月 20 日**；首次 PR 需签署 openvela CLA。
